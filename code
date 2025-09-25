@@ -1,0 +1,139 @@
+# ✅ Imports
+import pandas as pd
+#import pyttsx3
+import speech_recognition as sr
+#from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+from langchain_community.llms import HuggingFacePipeline
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts import PromptTemplate
+
+from langchain.schema import SystemMessage, HumanMessage
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+import pandas as pd
+
+# ✅ Load your Excel dataset
+df = pd.read_excel("/content/Cricket Dataset(City).xlsx")
+
+
+# ✅ Convert dataset rows into plain text
+docs = []
+for _, row in df.iterrows():
+    info = f"""
+    {row['Name']} from {row['Place']} scored {row['International Runs']} international runs including {row['ODI Runs']} ODI runs, {row['Test Runs']} Test runs, and {row['T20 Runs']} T20 runs.
+    His highest score was {row['Maximum Score']}.
+    He last played at {row['Last Match Venue']} on {row['Last Match Date']} and scored {row['Runs in Last Match']} runs in that match.
+    """
+    docs.append(info.strip())
+
+# ✅ HuggingFace Embeddings (no key needed)
+embedding = HuggingFaceEmbeddings(model_name="intfloat/e5-small-v2")
+
+# ✅ FAISS Vector Store
+db = FAISS.from_texts(docs, embedding)
+
+# # ✅ Load TinyLlama model from Hugging Face
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+
+model_id = "MBZUAI/LaMini-Flan-T5-783M"
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+model = AutoModelForSeq2SeqLM.from_pretrained(model_id)
+
+qa_pipeline = pipeline(
+    "text2text-generation",
+    model=model,
+    tokenizer=tokenizer,
+    max_length=512,
+    temperature=0,
+    top_k=50,
+    do_sample=False,
+)
+
+# # ✅ LangChain LLM wrapper
+# #llm = ReplicateLLM()
+llm = HuggingFacePipeline(pipeline=qa_pipeline)
+# ✅ Prompt Template
+prompt_template = PromptTemplate.from_template("""
+You are CrickChat, an expert cricket assistant. You answer questions using only the provided context. Never make up information or speculate.
+
+The context contains structured facts about cricket players, including their name, place of birth, international runs, ODI, Test, T20 stats, last match info, and highest scores.
+
+If multiple players match the query, list all of them with a brief explanation for each. If no relevant answer is found in the context, reply with: "Sorry, I couldn't find that information."
+If the user asks a follow-up question, make sure you do **not repeat any players already mentioned** in the past conversation. Use memory to avoid duplicates.
+Always keep track of earlier responses in the conversation (chat history). If the user asks a follow-up like "Tell me one more", "Another one?", or "Who else?", you must:
+- Refer to previous names you have already mentioned in the conversation.
+- Do NOT repeat those names again.
+- Only return new names if they exist in the context.
+
+Your tone should be helpful, concise, and fact-based.
+
+Context:
+{context}
+
+Question: {question}
+
+Answer:
+""")
+
+# ✅ RetrievalQA Chain
+retriever = db.as_retriever(search_kwargs={"k": 3})
+# ✅ Setup memory to track past user inputs and responses
+memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+# ✅ Create Conversational QA Chain
+qa_chain = ConversationalRetrievalChain.from_llm(
+    llm=llm,
+    retriever=retriever,
+    memory=memory,
+    combine_docs_chain_kwargs={"prompt": prompt_template},
+    verbose=False
+)
+
+
+# ✅ Setup speech engine
+recognizer = sr.Recognizer()
+#tts = pyttsx3.init()
+
+def speak(text):
+    print(f"CrickChat: {text}")
+    tts.say(text)
+    tts.runAndWait()
+
+# ✅ Text chat loop
+def run_text_loop():
+    print("\nText Mode: Type your cricket questions (type 'exit' to quit).")
+    while True:
+        query = input("\nYou: ")
+        if query.lower() == "exit":
+            print("Exiting CrickChat.")
+            break
+        response = qa_chain.run({"question": query})
+
+        print(f"CrickChat: {response}")
+
+# ✅ Voice chat loop
+def run_voice_loop():
+    print("\nVoice Mode: Ask your cricket questions (say 'exit' to quit).")
+    while True:
+        with sr.Microphone() as source:
+            print("\nListening...")
+            audio = recognizer.listen(source)
+
+            try:
+                user_input = recognizer.recognize_google(audio)
+                print(f"You: {user_input}")
+
+                if user_input.lower() == "exit":
+                    speak("Goodbye from CrickChat!")
+                    break
+
+                response = qa_chain.run(user_input)
+                speak(response)
+
+            except sr.UnknownValueError:
+                print("Sorry, I didn't catch that.")
+            except sr.RequestError:
+                print("Speech Recognition service is unavailable.")

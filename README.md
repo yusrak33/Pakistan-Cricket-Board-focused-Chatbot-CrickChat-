@@ -1,5 +1,6 @@
 # Pakistan-Cricket-Board-focused-Chatbot-CrickChat-
-AI chatbot for PCB cricket player statistics CrickChat is an AI-powered chatbot that answers questions about Pakistani cricket players using a structured dataset of 70+ entries. It provides player stats like ODI, Test, and T20 runs, international records, and personal details.
+AI chatbot for PCB cricket player statistics
+CrickChat is an AI-powered chatbot that answers questions about Pakistani cricket players using a structured dataset of 70+ entries. It provides player stats like ODI, Test, and T20 runs, international records, and personal details.
 
 The chatbot is built using:
 
